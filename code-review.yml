@@ -51,7 +51,13 @@
         # 把 code_review.json（status + issues）渲染成可读正文，供各平台发送真实评审内容
         - name: 整理评审结果正文
           image: docker.cnb.cool/dtapp/alpine:latest # 统一使用预构建的 CI 环境镜像
-          script: sh scripts/ci/render-ci-notice.sh review review_notice.md
+          script: |
+            # 本仓库是工作流模板，第三方 include 后工作区没有该脚本，缺失时从模板仓库拉取
+            if [ ! -f scripts/ci/render-ci-notice.sh ]; then
+              mkdir -p scripts/ci
+              curl -fsSL --max-time 30 "https://cnb.cool/dtapp/ci-templates/-/git/raw/main/scripts/ci/render-ci-notice.sh" -o scripts/ci/render-ci-notice.sh
+            fi
+            sh scripts/ci/render-ci-notice.sh review review_notice.md
           exports:
             review: REVIEW_RESULT
             # 飞书用 post 富文本（filepath 读 *_feishu.json），查看详情为可点击 a 标签

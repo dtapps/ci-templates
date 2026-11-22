@@ -46,7 +46,13 @@
         # 字段：各等级 count、gate 门禁结果、reporter 报告地址；格式化为 markdown 后供三个平台发送
         - name: 汇总 SCA 全量扫描结果
           image: docker.cnb.cool/dtapp/alpine:latest # 统一使用预构建的 CI 环境镜像
-          script: sh scripts/ci/render-ci-notice.sh sca full sca_notice.md
+          script: |
+            # 本仓库是工作流模板，第三方 include 后工作区没有该脚本，缺失时从模板仓库拉取
+            if [ ! -f scripts/ci/render-ci-notice.sh ]; then
+              mkdir -p scripts/ci
+              curl -fsSL --max-time 30 "https://cnb.cool/dtapp/ci-templates/-/git/raw/main/scripts/ci/render-ci-notice.sh" -o scripts/ci/render-ci-notice.sh
+            fi
+            sh scripts/ci/render-ci-notice.sh sca full sca_notice.md
           exports:
             sca: SCA_RESULT
             # 飞书用 post 富文本（filepath 读 *_feishu.json），查看详情为可点击 a 标签
@@ -108,7 +114,13 @@
         # 增量扫描的 Commit Annotation 关联到 PR 源分支最新提交（CNB_PULL_REQUEST_SHA）
         - name: 汇总 SCA 增量扫描结果
           image: docker.cnb.cool/dtapp/alpine:latest # 统一使用预构建的 CI 环境镜像
-          script: sh scripts/ci/render-ci-notice.sh sca diff sca_notice.md
+          script: |
+            # 本仓库是工作流模板，第三方 include 后工作区没有该脚本，缺失时从模板仓库拉取
+            if [ ! -f scripts/ci/render-ci-notice.sh ]; then
+              mkdir -p scripts/ci
+              curl -fsSL --max-time 30 "https://cnb.cool/dtapp/ci-templates/-/git/raw/main/scripts/ci/render-ci-notice.sh" -o scripts/ci/render-ci-notice.sh
+            fi
+            sh scripts/ci/render-ci-notice.sh sca diff sca_notice.md
           exports:
             sca: SCA_RESULT
             # 飞书用 post 富文本（filepath 读 *_feishu.json），查看详情为可点击 a 标签
