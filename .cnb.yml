@@ -1,2 +1,8 @@
 include:
   - path: '.cnb/pai.yml'
+  - 'cnb-sechook.yml'
+  - 'code-review.yml'
+  - 'code-security-config.yml'
+  - 'codewiki.yml'
+  - 'knowledge-base.yml'
+  - 'sca.yml'
