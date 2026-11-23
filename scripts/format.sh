@@ -95,7 +95,9 @@ SQL_EXCLUDES=()
 # MARKDOWN_EXCLUDES 是 find -path 的 glob 模式，不是待检查的路径，无需存在。
 MARKDOWNFMT_ARGS=(-w)
 MARKDOWN_GLOB="*.md"
-MARKDOWN_EXCLUDES=()
+MARKDOWN_EXCLUDES=(
+  './.git/*'
+)
 
 # Shell：shfmt 参数、目标目录（SHELL_TARGETS=() 即跳过该步骤）
 SHFMT_ARGS=(-w -i 2 -ci -bn -s -ln bash)
