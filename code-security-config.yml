@@ -1,6 +1,8 @@
 # 代码安全扫描配置自检
 # https://docs.cnb.cool/zh/security/config-file.html#zai-cnb-liu-shui-xian-li-tiao-yong-tui-jian
+# https://docs.cnb.cool/zh/build/trigger-rule.html
 '**':
+  # PR 创建、重新打开、源分支 push
   pull_request:
     - stages:
         - name: 校验代码安全扫描配置

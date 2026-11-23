@@ -1,7 +1,9 @@
 # AI 代码评审
 # https://docs.cnb.cool/zh/plugin/public/cnbcool/code-review.html
 # https://cnb.cool/cnb/plugins/cnbcool/code-review
+# https://docs.cnb.cool/zh/build/trigger-rule.html
 '**':
+  # PR 创建、重新打开、源分支 push
   pull_request:
     - name: AI 代码评审与通知
       # 密钥通过 imports 从私有仓库导入
@@ -53,6 +55,8 @@
         # 把 code_review.json（status + issues）渲染成可读正文，供各平台发送真实评审内容
         - name: 整理评审结果正文
           image: docker.cnb.cool/dtapp/alpine:latest # 统一使用预构建的 CI 环境镜像
+          # 是否允许当前流水线失败
+          allowFailure: true
           script: |
             # 本仓库是工作流模板，第三方 include 后工作区没有该脚本，缺失时从模板仓库拉取
             if [ ! -f scripts/ci/render-ci-notice.sh ]; then

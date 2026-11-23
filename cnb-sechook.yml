@@ -1,7 +1,9 @@
 # CNB 安全扫描结果
 # https://docs.cnb.cool/zh/plugin/public/cnbcool/cnb-sechook.html
 # https://cnb.cool/cnb/plugins/cnbcool/cnb-sechook
+# https://docs.cnb.cool/zh/build/trigger-rule.html
 '**':
+  # PR 创建、重新打开、源分支 push
   pull_request:
     - name: 安全扫描与通知
       # 密钥通过 imports 从私有仓库导入
@@ -20,6 +22,8 @@
         # 正文渲染统一收口到 scripts/ci/render-ci-notice.sh，供三个平台复用
         - name: 整理扫描报告正文
           image: docker.cnb.cool/dtapp/alpine:latest # 统一使用预构建的 CI 环境镜像
+          # 是否允许当前流水线失败
+          allowFailure: true
           script: |
             # 本仓库是工作流模板，第三方 include 后工作区没有该脚本，缺失时从模板仓库拉取
             if [ ! -f scripts/ci/render-ci-notice.sh ]; then

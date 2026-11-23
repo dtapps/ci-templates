@@ -1,7 +1,9 @@
 # 知识库构建
 # https://docs.cnb.cool/zh/ai/knowledge-base.html
 # https://docs.cnb.cool/zh/build/internal-steps/knowledge/update.html
+# https://docs.cnb.cool/zh/build/trigger-rule.html
 '**':
+  # 分支推送时触发
   push:
     - stages:
         - name: 知识库构建
@@ -16,6 +18,7 @@
             issueSyncEnabled: true
             # 是否忽略文档处理失败
             ignoreProcessFailures: true
+  # Tag push 时触发
   tag_push:
     - stages:
         - name: 知识库构建

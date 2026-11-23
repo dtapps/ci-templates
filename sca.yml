@@ -1,10 +1,10 @@
-# 开源组件漏洞扫描
+# 开源组件漏洞扫描 / License 扫描 / SBOM 生成
 # https://docs.cnb.cool/zh/security/sca-vulnerability.html
-# License 扫描
 # https://docs.cnb.cool/zh/security/sca-license.html
-# SBOM 生成
 # https://docs.cnb.cool/zh/security/sca-sbom.html
+# https://docs.cnb.cool/zh/build/trigger-rule.html
 '**':
+  # 分支推送时触发
   push:
     - name: SCA 全量扫描与通知
       # 密钥通过 imports 从私有仓库导入
@@ -46,6 +46,8 @@
         # 字段：各等级 count、gate 门禁结果、reporter 报告地址；格式化为 markdown 后供三个平台发送
         - name: 汇总 SCA 全量扫描结果
           image: docker.cnb.cool/dtapp/alpine:latest # 统一使用预构建的 CI 环境镜像
+          # 是否允许当前流水线失败
+          allowFailure: true
           script: |
             # 本仓库是工作流模板，第三方 include 后工作区没有该脚本，缺失时从模板仓库拉取
             if [ ! -f scripts/ci/render-ci-notice.sh ]; then
@@ -86,6 +88,7 @@
             webhook: $DINGTALK_BOT_WEBHOOK
             secret: $DINGTALK_BOT_SECRET
             content: $SCA_RESULT
+  # PR 创建、重新打开、源分支 push
   pull_request.target:
     - name: SCA 增量扫描与通知
       # 密钥通过 imports 从私有仓库导入
@@ -117,6 +120,8 @@
         # 增量扫描的 Commit Annotation 关联到 PR 源分支最新提交（CNB_PULL_REQUEST_SHA）
         - name: 汇总 SCA 增量扫描结果
           image: docker.cnb.cool/dtapp/alpine:latest # 统一使用预构建的 CI 环境镜像
+          # 是否允许当前流水线失败
+          allowFailure: true
           script: |
             # 本仓库是工作流模板，第三方 include 后工作区没有该脚本，缺失时从模板仓库拉取
             if [ ! -f scripts/ci/render-ci-notice.sh ]; then
