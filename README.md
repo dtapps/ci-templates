@@ -2,6 +2,8 @@
 
 CNB（云原生构建）流水线模板与配套脚本仓库。业务仓库通过 `.cnb.yml` 的 `include` 引用本仓库的 YAML，即可复用代码评审、安全扫描、SCA、Code Wiki 与知识库构建，并把结果统一推送到企业微信 / 飞书 / 钉钉。
 
+[![漏洞扫描](https://cnb.cool/dtapp/ci-templates/-/badge/security/vulnerability/full/latest)](https://cnb.cool/dtapp/ci-templates/-/security) [![CNB 访问](https://commit.cool/badge/visit/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB 星标](https://cnb.cool/dtapp/ci-templates/-/badge/star)](https://cnb.cool/dtapp/ci-templates) [![CNB 分叉](https://cnb.cool/dtapp/ci-templates/-/badge/fork)](https://cnb.cool/dtapp/ci-templates) [![CNB 仓库年龄](https://commit.cool/badge/age/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB 主要语言](https://commit.cool/badge/language/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB 许可证](https://commit.cool/badge/license/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB 存储用量](https://commit.cool/badge/usage/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB Git 存储](https://commit.cool/badge/usage/git/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB LFS 存储](https://commit.cool/badge/usage/lfs/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates)
+
 ## 模板一览
 
 | 文件                       | 触发事件                           | 作用                                                                                               |
@@ -75,3 +77,16 @@ GIT_REMOTE=origin,github make sync
 ```
 
 `sync` 会依次 `fetch` 并 `merge --ff-only`，然后向所有远程 `push`；`push-force` 会执行 `git push --force`，使用前请确认影响。
+
+## 许可证
+
+见 [LICENSE](LICENSE) 文件。
+
+## Star 走势
+
+<details>
+<summary><b>点击展开查看图表</b></summary>
+
+[![CNB Star 走势](https://commit.cool/stars/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates)
+
+</details>
