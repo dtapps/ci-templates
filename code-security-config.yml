@@ -4,7 +4,8 @@
 '**':
   # PR 创建、重新打开、源分支 push
   pull_request:
-    - stages:
+    - name: 校验代码安全扫描配置
+      stages:
         - name: 校验代码安全扫描配置
           image: cnbcool/code-security-config:latest
           args:

@@ -5,7 +5,8 @@
 '**':
   # Tag push 时触发
   tag_push:
-    - stages:
+    - name: 生成 Code Wiki
+      stages:
         - name: 生成 Code Wiki
           image: cnbcool/codewiki:latest
           timeout: 3h
@@ -16,7 +17,8 @@
             git_doc_dir: /${CNB_BUILD_WORKSPACE}/${CNB_REPO_SLUG}/codewiki
   # 自定义事件
   web_trigger_codewiki:
-    - stages:
+    - name: 生成 Code Wiki
+      stages:
         - name: 生成 Code Wiki
           image: cnbcool/codewiki:latest
           timeout: 3h

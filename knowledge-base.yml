@@ -5,7 +5,8 @@
 '**':
   # 分支推送时触发
   push:
-    - stages:
+    - name : 知识库构建
+      stages:
         - name: 知识库构建
           image: cnbcool/knowledge-base:latest
           # 是否允许当前流水线失败
@@ -20,7 +21,8 @@
             ignoreProcessFailures: true
   # Tag push 时触发
   tag_push:
-    - stages:
+    - name: 知识库构建
+      stages:
         - name: 知识库构建
           image: cnbcool/knowledge-base:latest
           # 是否允许当前流水线失败
@@ -36,7 +38,8 @@
 $:
   # Issue 创建时
   issue.open:
-    - stages:
+    - name: 知识库构建
+      stages:
         - name: 知识库构建
           type: knowledge:update
           # 是否允许当前流水线失败
@@ -51,7 +54,8 @@ $:
             ignoreProcessFailures: true
   # Issue 关闭时
   issue.close:
-    - stages:
+    - name: 知识库构建
+      stages:
         - name: 知识库构建
           type: knowledge:update
           # 是否允许当前流水线失败
@@ -66,7 +70,8 @@ $:
             ignoreProcessFailures: true
   # Issue 重新打开时
   issue.reopen:
-    - stages:
+    - name: 知识库构建
+      stages:
         - name: 知识库构建
           type: knowledge:update
           # 是否允许当前流水线失败
@@ -81,7 +86,8 @@ $:
             ignoreProcessFailures: true
   # 名称、描述、处理人、标签、优先级变更时
   issue.update:
-    - stages:
+    - name: 知识库构建
+      stages:
         - name: 知识库构建
           type: knowledge:update
           # 是否允许当前流水线失败
@@ -96,7 +102,8 @@ $:
             ignoreProcessFailures: true
   # Issue 评论时
   issue.comment:
-    - stages:
+    - name: 知识库构建
+      stages:
         - name: 知识库构建
           type: knowledge:update
           # 是否允许当前流水线失败
