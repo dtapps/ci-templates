@@ -5,7 +5,8 @@
   push:
     - stages:
         - name: 知识库构建
-          image: cnbcool/knowledge-base
+          image: cnbcool/knowledge-base:latest
+          # 是否允许当前流水线失败
           allowFailure: true
           settings:
             # 指定需要包含的文件，使用 Glob 模式匹配，默认为 **/**.md， 支持数组或逗号分隔
@@ -18,7 +19,8 @@
   tag_push:
     - stages:
         - name: 知识库构建
-          image: cnbcool/knowledge-base
+          image: cnbcool/knowledge-base:latest
+          # 是否允许当前流水线失败
           allowFailure: true
           settings:
             # 指定需要包含的文件，使用 Glob 模式匹配，默认为 **/**.md， 支持数组或逗号分隔
@@ -34,6 +36,7 @@ $:
     - stages:
         - name: 知识库构建
           type: knowledge:update
+          # 是否允许当前流水线失败
           allowFailure: true
           options:
             # 指定需要包含的文件，使用 Glob 模式匹配，默认为 **/**.md， 支持数组或逗号分隔
@@ -48,6 +51,7 @@ $:
     - stages:
         - name: 知识库构建
           type: knowledge:update
+          # 是否允许当前流水线失败
           allowFailure: true
           options:
             # 指定需要包含的文件，使用 Glob 模式匹配，默认为 **/**.md， 支持数组或逗号分隔
@@ -62,6 +66,7 @@ $:
     - stages:
         - name: 知识库构建
           type: knowledge:update
+          # 是否允许当前流水线失败
           allowFailure: true
           options:
             # 指定需要包含的文件，使用 Glob 模式匹配，默认为 **/**.md， 支持数组或逗号分隔
@@ -76,6 +81,7 @@ $:
     - stages:
         - name: 知识库构建
           type: knowledge:update
+          # 是否允许当前流水线失败
           allowFailure: true
           options:
             # 指定需要包含的文件，使用 Glob 模式匹配，默认为 **/**.md， 支持数组或逗号分隔
@@ -90,6 +96,7 @@ $:
     - stages:
         - name: 知识库构建
           type: knowledge:update
+          # 是否允许当前流水线失败
           allowFailure: true
           options:
             # 指定需要包含的文件，使用 Glob 模式匹配，默认为 **/**.md， 支持数组或逗号分隔

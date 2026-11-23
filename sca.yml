@@ -59,8 +59,9 @@
             sca_text: SCA_RESULT_TEXT
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/wecom-message.html
         - name: 企业微信通知
+          image: tencentcom/wecom-message:latest
+          # 是否允许当前流水线失败
           allowFailure: true
-          image: tencentcom/wecom-message
           settings:
             robot: $WECOM_BOT_WEBHOOK
             msgType: markdown
@@ -68,16 +69,18 @@
             lastMsg: 完整结果请查看报告链接
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/feishu-message.html
         - name: 飞书通知
+          image: tencentcom/feishu-message:latest
+          # 是否允许当前流水线失败
           allowFailure: true
-          image: tencentcom/feishu-message
           settings:
             robot: $FEISHU_BOT_WEBHOOK
             msg_type: post
             filepath: sca_notice_feishu.json
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/dingtalk-bot-msg.html
         - name: 钉钉通知
-          allowFailure: true
           image: tencentcom/dingtalk-bot-msg:latest
+          # 是否允许当前流水线失败
+          allowFailure: true
           settings:
             c_type: markdown
             webhook: $DINGTALK_BOT_WEBHOOK
@@ -127,8 +130,9 @@
             sca_text: SCA_RESULT_TEXT
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/wecom-message.html
         - name: 企业微信通知
+          image: tencentcom/wecom-message:latest
+          # 是否允许当前流水线失败
           allowFailure: true
-          image: tencentcom/wecom-message
           settings:
             robot: $WECOM_BOT_WEBHOOK
             msgType: markdown
@@ -136,16 +140,18 @@
             lastMsg: 完整结果请查看报告链接
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/feishu-message.html
         - name: 飞书通知
+          image: tencentcom/feishu-message:latest
+          # 是否允许当前流水线失败
           allowFailure: true
-          image: tencentcom/feishu-message
           settings:
             robot: $FEISHU_BOT_WEBHOOK
             msg_type: post
             filepath: sca_notice_feishu.json
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/dingtalk-bot-msg.html
         - name: 钉钉通知
-          allowFailure: true
           image: tencentcom/dingtalk-bot-msg:latest
+          # 是否允许当前流水线失败
+          allowFailure: true
           settings:
             c_type: markdown
             webhook: $DINGTALK_BOT_WEBHOOK

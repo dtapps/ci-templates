@@ -8,7 +8,7 @@
       imports: https://cnb.cool/dtapp/envs/-/blob/main/webhook.yml
       stages:
         - name: 获取扫描结果
-          image: cnbcool/cnb-sechook
+          image: cnbcool/cnb-sechook:latest
           settings:
             # 最多显示的作者数量（可选，默认为 5，必须为正整数）
             max_display_authors: 5
@@ -34,8 +34,9 @@
         # 安全扫描结果通知：企业微信（fromFile 直接发送报告全文）
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/wecom-message.html
         - name: 企业微信通知
+          image: tencentcom/wecom-message:latest
+          # 是否允许当前流水线失败
           allowFailure: true
-          image: tencentcom/wecom-message
           settings:
             robot: $WECOM_BOT_WEBHOOK
             msgType: markdown
@@ -45,8 +46,9 @@
         # 安全扫描结果通知：飞书（post 富文本，查看详情为可点击超链接）
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/feishu-message.html
         - name: 飞书通知
+          image: tencentcom/feishu-message:latest
+          # 是否允许当前流水线失败
           allowFailure: true
-          image: tencentcom/feishu-message
           settings:
             robot: $FEISHU_BOT_WEBHOOK
             msg_type: post
@@ -54,8 +56,9 @@
         # 安全扫描结果通知：钉钉（机器人 webhook + 加签，markdown 发送报告全文）
         # https://docs.cnb.cool/zh/plugin/public/tencentcom/dingtalk-bot-msg.html
         - name: 钉钉通知
-          allowFailure: true
           image: tencentcom/dingtalk-bot-msg:latest
+          # 是否允许当前流水线失败
+          allowFailure: true
           settings:
             c_type: markdown
             webhook: $DINGTALK_BOT_WEBHOOK
