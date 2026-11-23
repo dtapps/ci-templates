@@ -67,6 +67,7 @@ DOCKERFMT_INSTALL="go install github.com/reteps/dockerfmt@latest"
 YAMLFMT_CONF=".yamlfmt"
 YAMLFMT_ARGS=()
 YAML_TARGETS=(
+  ".cnb"
   "cnb-sechook.yml"
   "code-review.yml"
   "code-security-config.yml"
@@ -106,7 +107,9 @@ SHELL_TARGETS=(
 )
 
 # Dockerfile：扫描目录、文件名匹配、dockerfmt 参数
-DOCKER_DIRS=()
+DOCKER_DIRS=(
+  ".cnb"
+)
 DOCKER_GLOB="Dockerfile*"
 DOCKERFMT_ARGS=(-w)
 

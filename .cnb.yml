@@ -1,0 +1,2 @@
+include:
+  - path: '.cnb/pai.yml'
