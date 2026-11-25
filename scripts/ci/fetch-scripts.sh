@@ -32,7 +32,7 @@
 #       只有 api.gitcode.com 的 raw API 能取到文件），故未列入。
 #
 # 平台探测（只看各平台强特征变量，避免业务仓库里配的 GITEE_TOKEN 之类被误判成 CI）：
-#   CNB     CNB_BUILD_ID / CNB_PIPELINE_ID / CNB_BUILD_WORKSPACE 任一非空
+#   CNB     CNB=true，或 CNB_BUILD_ID / CNB_PIPELINE_ID / CNB_BUILD_WORKSPACE 任一非空
 #   GitHub  GITHUB_ACTIONS=true
 #   Gitee   GITEE_CI / GITEE_GO_PIPELINE_ID 任一非空
 #   GitLab  GITLAB_CI=true
@@ -159,8 +159,8 @@ esac
 
 # ── 探测当前 CI 平台；一个都命中不了就按同一顺序取第一个（CNB）──────────
 detect_source() {
-  if [ -n "${CNB_BUILD_ID:-}" ] || [ -n "${CNB_PIPELINE_ID:-}" ] \
-    || [ -n "${CNB_BUILD_WORKSPACE:-}" ]; then
+  if [ "${CNB:-}" = 'true' ] || [ -n "${CNB_BUILD_ID:-}" ] \
+    || [ -n "${CNB_PIPELINE_ID:-}" ] || [ -n "${CNB_BUILD_WORKSPACE:-}" ]; then
     printf 'cnb'
     return 0
   fi

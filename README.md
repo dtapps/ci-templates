@@ -72,6 +72,8 @@ sh scripts/ci/fetch-scripts.sh --list     # 查看清单与候选源顺序
 
 本地已有同名文件时不会直接信任：先下载远端内容算 sha256，与本地一致就跳过、不一致就覆盖，所以仓库里不会停着旧版本脚本。下载先写临时文件、比对通过才 `mv`，失败不会破坏已有文件；`.sh` 必须以 `#!` 开头才落盘，避免把错误页面写成脚本。当前清单：`scripts/ci/delete-release.sh`、`scripts/ci/describe-artifact.sh`、`scripts/ci/render-ci-notice.sh`。
 
+时间 / 日期的取值与时区约定见 [`scripts/ci/time-and-date.md`](scripts/ci/time-and-date.md)（CNB 用北京时间，其余用 UTC）。
+
 ## 格式化
 
 `Makefile` 提供配置 / 文档类文件的格式化入口，底层是 `scripts/format.sh`：
