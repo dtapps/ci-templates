@@ -27,10 +27,15 @@ export GIT_REMOTE
 format-yaml:
 	@bash scripts/format.sh yaml
 
-# 格式化 JSON 文件
+# 格式化严格 JSON 文件（gojq）
 .PHONY: format-json
 format-json:
 	@bash scripts/format.sh json
+
+# 格式化 JSON5 文件（jsonfmt，保留注释 / 无引号 key / 尾逗号）
+.PHONY: format-json5
+format-json5:
+	@bash scripts/format.sh json5
 
 # 格式化 SQL 文件
 .PHONY: format-sql
@@ -54,7 +59,20 @@ format-shell:
 
 # 格式化/修复项目
 .PHONY: format
-format: format-yaml format-json format-sql format-markdown format-docker format-shell
+format: format-yaml format-json format-json5 format-sql format-markdown format-docker format-shell
+
+#####################
+## 压缩 相关
+#####################
+
+# 压缩 Shell 脚本（去注释与空行，保留 shebang / 头部用法注释 / heredoc），产物在 dist/minify/，不动原文件
+.PHONY: minify-shell
+minify-shell:
+	@bash scripts/minify.sh shell
+
+# 全部压缩产物（目前只有 Shell）
+.PHONY: minify
+minify: minify-shell
 
 #####################
 ## 更新 / 拉取 / 推送 相关
