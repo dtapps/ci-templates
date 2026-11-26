@@ -59,18 +59,32 @@ sh scripts/ci/render-ci-notice.sh --self-test
 
 ## 脚本同步（`scripts/ci/fetch-scripts.sh`）
 
-`scripts/ci/fetch-scripts.sh` 是给业务仓库用的自举脚本：文件顶部固定四个同源仓库和一份脚本清单，运行时按清单把脚本下载到**与模板仓库完全一致的相对路径**。业务仓库只要保留这一个文件，就不必手工复制或逐个跟版本。
+`scripts/ci/fetch-scripts.sh` 是给业务仓库用的自举脚本：文件顶部固定各源地址和一份脚本清单，运行时按清单把脚本下载到**与模板仓库完全一致的相对路径**。业务仓库只要保留这一个文件，就不必手工复制或逐个跟版本。
+
+首次接入时在业务仓库根目录执行（落盘路径与模板仓库一致，仍是 `scripts/ci/fetch-scripts.sh`；推荐走 CNB）：
+
+```sh
+mkdir -p scripts/ci
+curl -fsSL https://cnb.cool/dtapp/ci-templates/-/git/raw/main/scripts/ci/fetch-scripts.sh -o scripts/ci/fetch-scripts.sh
+chmod +x scripts/ci/fetch-scripts.sh
+sh scripts/ci/fetch-scripts.sh            # 再按清单拉齐其余脚本
+```
+
+之后日常同步只需：
 
 ```sh
 sh scripts/ci/fetch-scripts.sh            # 同步：缺失的下载，已存在的比 sha256，不同则更新
 sh scripts/ci/fetch-scripts.sh --force    # 不做比对，已存在也直接覆盖
 sh scripts/ci/fetch-scripts.sh --check    # 只查存在性（不下载、不比对），缺失时退出码 1
 sh scripts/ci/fetch-scripts.sh --list     # 查看清单与候选源顺序
+sh scripts/ci/fetch-scripts.sh --npm-version 0.0.1-nightly.20261126  # 指定 npm 包版本或 dist-tag
 ```
 
-四个源仓库内容一致，脚本探测当前 CI 平台并用同平台仓库：CNB → GitHub → Gitee → GitLab；一个都匹配不上（本地开发等）时按同一顺序取，即默认 CNB。某个源取不到文件（超时、404）会自动换下一个源，回退是每个文件独立的，全部失败才报错；加 `--no-fallback` 可关掉回退。也可用 `--source cnb|github|gitee|gitlab` 指定起点源，`CI_TEMPLATES_REF` 固定分支或 tag（默认 `main`）。
+源分三类：四个仓库源、npm CDN、npm registry 与镜像，固定顺序为 `CNB → GitHub → Gitee → GitLab → jsdelivr → unpkg → npm → npmmirror → tencent`（包已发布到 npm：`@dtapp/ci-templates`）。脚本探测当前 CI 平台并用同平台仓库作为起点源，起点源排第一；**其余源一律按上述固定顺序尝试**，所以四个仓库源始终在 npm 源之前（GitHub 环境下 `cnb / gitee / gitlab` 也会排在 `npmmirror` 前面，不会被挪到末尾）；一个都匹配不上（本地开发等）时默认 CNB。某个源取不到文件（超时、404）会自动换下一个源，回退是每个文件独立的，全部失败才报错；加 `--no-fallback` 可关掉回退。也可用 `--source` 指定起点源，`CI_TEMPLATES_REF` 固定仓库分支或 tag（默认 `main`），`CI_TEMPLATES_NPM_VERSION` 固定 npm 版本或 dist-tag（默认 `latest`）。
 
-各平台下载地址格式不同：GitLab 是 `/-/raw/<ref>/<path>`，Gitee 是 `/raw/<ref>/<path>`（302 到内容域，靠 `curl -L` 跟随）。GitCode 没有可用的 raw 地址（网页 raw 对 `.sh` 只返回 HTML / 403「暂不支持预览」，只有 `api.gitcode.com` 的 raw API 能取到文件），因此未纳入。
+各平台下载地址格式不同：GitLab 是 `/-/raw/<ref>/<path>`，Gitee 是 `/raw/<ref>/<path>`（302 到内容域，靠 `curl -L` 跟随）。
+
+npm 源分两种取法：jsDelivr（`cdn.jsdelivr.net/npm/<包>@<版本>/<path>`）和 unpkg（`unpkg.com/<包>@<版本>/<path>`，`app.unpkg.com` 只是文件浏览界面）能按路径直接取单文件；官方 registry 和镜像（`registry.npmjs.org` / `registry.npmmirror.com` / `mirrors.cloud.tencent.com/npm`）只有整包接口，脚本会先把 `<包>-<版本>.tgz` 下载到临时目录（每次运行每个镜像最多一次）再用 `tar -xzOf` 取单个文件，因此这类源额外依赖 `tar`。`latest` / dist-tag 会先向对应 registry 解析成具体版本号，整包路径里用具体版本。
 
 本地已有同名文件时不会直接信任：先下载远端内容算 sha256，与本地一致就跳过、不一致就覆盖，所以仓库里不会停着旧版本脚本。下载先写临时文件、比对通过才 `mv`，失败不会破坏已有文件；`.sh` 必须以 `#!` 开头才落盘，避免把错误页面写成脚本。当前清单：`scripts/ci/delete-release.sh`、`scripts/ci/describe-artifact.sh`、`scripts/ci/render-ci-notice.sh`。
 
