@@ -1,0 +1,239 @@
+# 发布工作流：与 CNB 的 .cnb/workflows/publish.yml 对齐。
+#
+# 本仓库发布的是一个 npm 包（内容 = scripts/ 下的 shell 脚本 + dist/ 下的压缩副本，
+# 由 package.json 的 files 字段决定），同时打 tag + 建 Release。
+#
+# 三个平台各发各的，包名/注册表不同：
+#   * GitHub Packages  -> @dtapps/ci-templates（scope 必须与仓库 owner 一致），本文件发布
+#   * npm 公共源       -> @dtapp/ci-templates ，由 publish-npm.yml 发布（见文件末尾 job）
+#   * CNB 制品库       -> @dtapp/ci-templates ，由 .cnb/workflows/publish.yml 发布
+#
+# 两种触发共用同一套步骤：
+#   * 每天 00:05 定时发 nightly（VERSION=nightly 自动展开为 <最新正式版+1补丁>-nightly.<UTC 日期>）
+#   * workflow_dispatch 手动填 version（semver 或 nightly）与 commit（留空用触发分支 HEAD）
+#
+# 标题统一为「ci-templates v1.2.3」；Release 正文交给 GitHub 自动生成的 Release Notes
+# （generate_release_notes），不再从 README 里 awk 安装段，也不再依赖本地 changelog 脚本。
+#
+# 包版本已存在则跳过后续全部步骤（工作流保持成功）：npm 版本不可覆盖，
+# 需要新 Release 就升版本号。version 规则见 scripts/ci/resolve-version.sh。
+#
+# https://github.com/actions/checkout
+# https://github.com/softprops/action-gh-release
+name: Release Package
+
+on:
+  schedule:
+    - cron: '5 0 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号：1.2.3 / 1.2.3-rc.1 / 1.2.3-nightly.20260101；填 nightly 自动展开'
+        required: true
+        type: string
+        default: nightly
+      commit:
+        description: '要发布的提交 SHA（留空用当前分支最新提交）'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  # npm trusted publishing（OIDC）要求「调用方 + 被调用方」都给 id-token: write；
+  # 这里给工作流级兜底，实际只用在下面对 publish-npm 的调用上。
+  id-token: write
+
+# 发布目标统一在这里维护。注意不要叫 NPM_REGISTRY：
+# scripts/ci/resolve-version.sh 会用同名变量查基准版本，那必须继续指向 CNB 制品库。
+env:
+  PUBLISH_NAME: '@dtapps/ci-templates'
+  PUBLISH_SCOPE: '@dtapps'
+  PUBLISH_REGISTRY: https://npm.pkg.github.com
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-26.04
+    container:
+      image: ghcr.io/dtapps/golang:latest
+      env:
+        GIT_SHIM_SAFE_DIRECTORY: 'true'
+    # 解析出的版本号传给下面的 publish-npm（workflow_call），保证两边发的是同一个版本。
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      tag: ${{ steps.version.outputs.TAG }}
+      exists: ${{ steps.version_exists.outputs.exists }}
+    env:
+      VERSION: ${{ github.event_name == 'schedule' && 'nightly' || inputs.version }}
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # fetch-depth: 0 是必需的：nightly 的基准版本、Release Notes 的 diff 都要读历史 tag。
+      - name: 检出代码
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
+
+      # 容器镜像 ghcr.io/dtapps/golang 自带 Node/npm，不再用 setup-node 重复安装。
+      # setup-node 的 registry-url 其实只做两件事，这里手写等价内容：
+      #   1. 往 .npmrc 写 registry / @scope:registry，指定发布源；
+      #   2. 写 //host/:_authToken=${NODE_AUTH_TOKEN}，npm publish 时据此带令牌。
+      - name: 配置 npm 认证与发布 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${PUBLISH_REGISTRY#https://}"
+          host="${host%/}"
+          npm config set registry "$PUBLISH_REGISTRY"
+          npm config set "${PUBLISH_SCOPE}:registry" "$PUBLISH_REGISTRY"
+          npm config set "//${host}/:_authToken" '${NODE_AUTH_TOKEN}'
+          echo "npm $(npm -v) / node $(node -v)"
+          cat "$HOME/.npmrc"
+
+      - name: 解析版本
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/resolve-version.sh
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> "$GITHUB_OUTPUT"
+          done < .version.env
+
+      # 包版本已存在则跳过后续全部步骤（工作流保持成功）。
+      - name: 检查包版本是否已存在
+        id: version_exists
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          set +e
+          npm view "${PUBLISH_NAME}@${VERSION}" version --registry "$PUBLISH_REGISTRY" >/dev/null 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 包版本已存在，跳过后续步骤
+        if: steps.version_exists.outputs.exists == 'true'
+        shell: bash
+        run: echo "::notice::包版本已存在，跳过后续全部步骤"
+
+      # 重跑同一版本时先删掉旧的 Release 与 tag，保证下面能重新创建。
+      - name: 删除同名旧 Release 与 tag（如果存在）
+        if: steps.version_exists.outputs.exists != 'true'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_TO_DELETE: ${{ steps.version.outputs.TAG }}
+        run: sh scripts/ci/delete-release.sh --platform github --tag "$TAG_TO_DELETE"
+
+      # 包内的 dist/ 是 scripts/ 的压缩副本（make minify-shell 的产物），
+      # 平时被 .gitignore 忽略，发布前现生成；生成失败说明脚本本身有问题，直接拦住发布。
+      - name: 生成 dist 压缩副本
+        if: steps.version_exists.outputs.exists != 'true'
+        shell: bash
+        run: bash scripts/minify.sh shell
+
+      - name: 创建标签
+        if: steps.version_exists.outputs.exists != 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.TAG }}
+          TAG_COMMIT: ${{ inputs.commit || github.sha }}
+        run: bash scripts/ci/nightly-tag.sh
+
+      # GitHub Packages 上的包名必须是 @<repo owner>/...，与 npm 公共源、CNB 制品库不同，
+      # 所以发布前改 package.json 的 name；files 字段（scripts + dist）保持不变。
+      - name: 写入版本号与 GitHub Packages 包名
+        if: steps.version_exists.outputs.exists != 'true'
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.PACKAGE_VERSION;p.name=process.env.PUBLISH_NAME;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
+          echo "将要发布：$(node -p "require('./package.json').name + '@' + require('./package.json').version")"
+          # npm pack --json 在新版输出「以包名为 key 的对象」，旧版是数组，两种都兼容。
+          npm pack --dry-run --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const raw=JSON.parse(s);const j=Array.isArray(raw)?raw[0]:raw[Object.keys(raw)[0]];console.log("包内文件 "+j.files.length+" 个，共 "+j.size+" 字节")})'
+
+      - name: 创建 Release
+        if: steps.version_exists.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          # 标题格式：ci-templates v1.2.3
+          name: ci-templates ${{ steps.version.outputs.TAG }}
+          prerelease: ${{ steps.version.outputs.PRERELEASE == 'true' }}
+          make_latest: ${{ steps.version.outputs.LATEST }}
+          # 正文交给平台自动生成（按上一个 tag 比较提交），不再维护 release_body.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 清理旧 nightly Release（保留 3 个）
+        if: steps.version_exists.outputs.exists != 'true' && steps.version.outputs.CHANNEL == 'nightly'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: sh scripts/ci/delete-release.sh --platform github --keep 3
+
+      # Release 已成功后再发布 npm；前面任一步失败都不会动制品库。
+      - name: 发布到 GitHub Packages
+        if: steps.version_exists.outputs.exists != 'true'
+        shell: bash
+        env:
+          DIST_TAG: ${{ steps.version.outputs.DIST_TAG }}
+        run: |
+          set -euo pipefail
+          set +e
+          out="$(npm publish --tag "$DIST_TAG" --registry "$PUBLISH_REGISTRY" 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -eq 0 ]; then
+            # 只有不带 -rc/-beta/-alpha/-nightly 后缀的正式版才该占 latest；
+            # npm 对「首个版本」有兜底行为，这里核对一次，串了只告警不改写。
+            latest="$(npm view "$PUBLISH_NAME" dist-tags.latest --registry "$PUBLISH_REGISTRY" 2>/dev/null || true)"
+            echo "latest 当前指向：${latest:-<未设置>}（本次 dist-tag=${DIST_TAG}）"
+            case "$latest" in
+              *-*)
+                if [ "$DIST_TAG" != "latest" ]; then
+                  echo "::warning::latest 指向预发布版本 ${latest}；发一个正式版（无 -rc/-beta/-alpha/-nightly 后缀）即会自动纠正"
+                fi
+                ;;
+            esac
+            exit 0
+          fi
+          # npm 包版本不可变；同版本重跑时 tag / Release 已重建，包沿用已发布的即可。
+          if printf '%s' "$out" | grep -Eqi 'previously published|already exists|existing version|409 conflict|E409'; then
+            echo "::warning::包版本已存在，npm 不支持覆盖，沿用已发布版本"
+            exit 0
+          fi
+          exit "$rc"
+
+  # 复制出来的 npm 公共源工作流：Release 跑完后，把上面算好的版本号原样传进去。
+  # 用 workflow_call 而不是 workflow_run，是为了避免重新猜版本（tag 反推会取错）。
+  publish-npm:
+    needs: release
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-npm.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+      commit: ${{ inputs.commit || github.sha }}
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

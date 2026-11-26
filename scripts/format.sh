@@ -71,6 +71,7 @@ YAMLFMT_CONF=".yamlfmt"
 YAMLFMT_ARGS=()
 YAML_TARGETS=(
   ".cnb"
+  ".github"
   "cnb-sechook.yml"
   "code-review.yml"
   "code-security-config.yml"
@@ -87,7 +88,9 @@ YAML_EXCLUDES=()
 # - 带注释 / 无引号 key / 尾逗号的 JSON5 不在这里，走下面的 JSON5 步骤。
 # JSON_TARGETS=() 即整个步骤跳过；不存在的目标会自动跳过。
 JSONFMT_ARGS=(.)
-JSON_TARGETS=()
+JSON_TARGETS=(
+  "package.json"
+)
 JSON_GLOB="*.json"
 JSON_EXCLUDES=()
 
@@ -95,7 +98,9 @@ JSON_EXCLUDES=()
 # - 它保留注释、无引号 key、尾逗号；-t 表示多行时保留尾逗号；
 # - 只收显式文件路径，不做目录扫描；JSON5_TARGETS=() 即跳过。
 JSON5FMT_ARGS=(-t)
-JSON5_TARGETS=()
+JSON5_TARGETS=(
+  ".github/renovate.json5"
+)
 
 # SQL：工具参数（-l 指定方言）、扫描目录、文件名匹配、排除路径
 # 当前项目 SQL 快照在 sql/；复制到别的项目时按实际目录改 SQL_TARGETS，
@@ -130,6 +135,7 @@ SHELL_EXCLUDES=()
 # Dockerfile：扫描目录、文件名匹配、dockerfmt 参数
 DOCKER_DIRS=(
   ".cnb"
+  ".github"
 )
 DOCKER_GLOB="Dockerfile*"
 DOCKERFMT_ARGS=(-w)

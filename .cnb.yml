@@ -1,4 +1,5 @@
 include:
+  - .cnb/workflows/publish.yml
   - 'cnb-sechook.yml'
   - 'code-review.yml'
   - 'code-security-config.yml'

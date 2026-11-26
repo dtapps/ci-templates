@@ -121,7 +121,9 @@ parse_artifact_name() {
       ;;
   esac
 
-  norm="$(printf '%s' "${stem}" | tr '_' '-')"
+  # x86_64 换成下划线后是 x86-64，会被当成「架构 = 64」；先归一到 amd64 再切段，
+  # 否则 App_x86_64.ipk 这类没有 os 段的文件名解析错。
+  norm="$(printf '%s' "${stem}" | tr '_' '-' | sed 's/x86-64/amd64/g')"
   APP="${norm%%-*}"
   [ -n "${APP}" ] || APP='应用'
 
