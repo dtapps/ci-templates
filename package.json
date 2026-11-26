@@ -1,0 +1,28 @@
+{
+  "bugs": {
+    "url": "https://cnb.cool/dtapp/ci-templates/-/issues"
+  },
+  "description": "CNB（云原生构建）流水线模板与配套 shell 脚本：代码评审、安全扫描、SCA、Code Wiki、知识库与 IM 通知渲染",
+  "files": [
+    "scripts",
+    "dist"
+  ],
+  "homepage": "https://cnb.cool/dtapp/ci-templates",
+  "keywords": [
+    "cnb",
+    "ci",
+    "templates",
+    "shell",
+    "cloud-native-build"
+  ],
+  "license": "MIT",
+  "name": "@dtapp/ci-templates",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://cnb.cool/dtapp/ci-templates"
+  },
+  "version": "0.0.0"
+}

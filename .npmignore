@@ -1,0 +1,4 @@
+# 本文件只做一件事：阻止 npm 在缺少 .npmignore 时回退到 .gitignore。
+# dist/ 已经写进 .gitignore（构建产物不入库），但它必须进包，
+# 所以这里保持「不忽略任何东西」，真正的白名单是 package.json 的 files 字段：
+#   files: ["scripts", "dist"]

@@ -4,6 +4,8 @@ CNB（云原生构建）流水线模板与配套脚本仓库。业务仓库通�
 
 [![CNB 访问](https://commit.cool/badge/visit/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB 仓库年龄](https://commit.cool/badge/age/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB 主要语言](https://commit.cool/badge/language/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates) [![CNB 许可证](https://commit.cool/badge/license/dtapp/ci-templates)](https://cnb.cool/dtapp/ci-templates)
 
+[![npm 版本](https://img.shields.io/npm/v/@dtapp/ci-templates?label=npm)](https://www.npmjs.com/package/@dtapp/ci-templates) [![npm 月下载](https://img.shields.io/npm/dm/@dtapp/ci-templates?label=%E6%9C%88%E4%B8%8B%E8%BD%BD)](https://www.npmjs.com/package/@dtapp/ci-templates) [![npm 近18月下载](https://img.shields.io/npm/d18m/@dtapp/ci-templates?label=%E8%BF%9118%E6%9C%88%E4%B8%8B%E8%BD%BD)](https://www.npmjs.com/package/@dtapp/ci-templates) [![许可证](https://img.shields.io/npm/l/@dtapp/ci-templates?label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](https://github.com/dtapps/ci-templates/blob/main/LICENSE) [![安装体积](https://img.shields.io/npm/unpacked-size/@dtapp/ci-templates?label=%E5%AE%89%E8%A3%85%E4%BD%93%E7%A7%AF)](https://www.npmjs.com/package/@dtapp/ci-templates) [![jsDelivr 月下载](https://data.jsdelivr.com/v1/package/npm/@dtapp/ci-templates/badge)](https://www.jsdelivr.com/package/npm/@dtapp/ci-templates) [![Socket 安全评分](https://socket.dev/api/badge/npm/package/@dtapp/ci-templates)](https://socket.dev/npm/package/@dtapp/ci-templates)
+
 ## 模板一览
 
 | 文件                       | 触发事件                           | 作用                                                                                               |

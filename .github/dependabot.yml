@@ -1,0 +1,12 @@
+version: 2
+
+updates:
+  # 本仓库没有 package.json / lockfile，只有 workflows 里的 action 引用需要跟随版本，
+  # 因此只保留 github-actions 这一个生态（原 npm 配置已删除）。
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+    labels:
+      - 'dependencies'
+      - 'github-actions'

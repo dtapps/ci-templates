@@ -1,6 +1,9 @@
 # 构建产物
 dist/
 
+# 发布流程产物（scripts/ci/resolve-version.sh 写入）
+.version.env
+
 # 开发工具
 .env
 .git
