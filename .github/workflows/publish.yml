@@ -9,7 +9,7 @@
 #   * CNB 制品库       -> @dtapp/ci-templates ，由 .cnb/workflows/publish.yml 发布
 #
 # 两种触发共用同一套步骤：
-#   * 每天 00:05 定时发 nightly（VERSION=nightly 自动展开为 <最新正式版+1补丁>-nightly.<UTC 日期>）
+#   * 每天 00:00 定时发 nightly（VERSION=nightly 自动展开为 <最新正式版+1补丁>-nightly.<UTC 日期>）
 #   * workflow_dispatch 手动填 version（semver 或 nightly）与 commit（留空用触发分支 HEAD）
 #
 # 标题统一为「ci-templates v1.2.3」；Release 正文交给 GitHub 自动生成的 Release Notes
@@ -24,7 +24,8 @@ name: Release Package
 
 on:
   schedule:
-    - cron: '5 0 * * *'
+    # GitHub 的 cron 固定使用 UTC。
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       version:
@@ -106,7 +107,10 @@ jobs:
             echo "${key}=${value}" >> "$GITHUB_OUTPUT"
           done < .version.env
 
-      # 包版本已存在则跳过后续全部步骤（工作流保持成功）。
+      # 判断依据：包版本号（npm view 的 versions），不用 tag —— tag 会被删/重建，
+      # 同一提交上还可能有多个 tag。npm 版本不可覆盖，已存在就跳过后面全部步骤，
+      # 工作流保持成功（不报错）；需要新 Release 就升版本号。
+      # 查询失败（网络/权限）按“不存在”继续，发布步骤自带版本冲突容错兜底，不阻断流程。
       - name: 检查包版本是否已存在
         id: version_exists
         shell: bash
@@ -115,14 +119,17 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          npm view "${PUBLISH_NAME}@${VERSION}" version --registry "$PUBLISH_REGISTRY" >/dev/null 2>&1
+          found="$(npm view "${PUBLISH_NAME}@${VERSION}" version --registry "$PUBLISH_REGISTRY" 2>/dev/null)"
           rc=$?
           set -e
-          if [ "$rc" -eq 0 ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          exists=false
+          if [ "$rc" -eq 0 ] && [ -n "$found" ]; then
+            exists=true
+          elif [ "$rc" -ne 0 ]; then
+            echo "::warning::查询包版本失败（npm view 返回 $rc），按“不存在”继续；发布步骤会做版本冲突容错"
           fi
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+          echo "包 ${PUBLISH_NAME}@${VERSION} 是否已存在：${exists}"
 
       - name: 包版本已存在，跳过后续步骤
         if: steps.version_exists.outputs.exists == 'true'
@@ -184,7 +191,9 @@ jobs:
 
       # protect 保住正式版、latest/stable 与 rc/beta/alpha，避免 by_count 误删非 nightly 版本；
       # dry_run 必须显式为 false，否则插件默认只列出待删除版本。
+      # 包版本已存在时连清理一起跳过：delete_git_tag 会删掉已有 Release 依赖的 tag。
       - name: 清理旧 nightly（只保留最近 3 个）
+        if: steps.version_exists.outputs.exists != 'true'
         uses: dtapps/release-cleaner-action@main
         continue-on-error: true
         with:
@@ -231,6 +240,8 @@ jobs:
 
   # 复制出来的 npm 公共源工作流：Release 跑完后，把上面算好的版本号原样传进去。
   # 用 workflow_call 而不是 workflow_run，是为了避免重新猜版本（tag 反推会取错）。
+  # 这里不按 GitHub Packages 的检查结果跳过：三个源相互独立，版本是否已存在
+  # 由 publish-npm.yml 查 npm 公共源自己判定（例如 GitHub Packages 已有而 npm 没有时仍能补发）。
   publish-npm:
     needs: release
     permissions:

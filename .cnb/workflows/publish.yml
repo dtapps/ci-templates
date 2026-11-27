@@ -8,11 +8,11 @@
 #   * GitHub Packages  -> @dtapps/ci-templates（见 .github/workflows/publish.yml）
 #   * npm 公共源       -> @dtapp/ci-templates（见 .github/workflows/publish-npm.yml）
 #
-# 两种触发共用同一份定义（见下面的 &publish_stages 与 &publish_job 锚点；CNB 不支持
+# 两种触发共用同一份定义（见下面的 &trigger_release 锚点；CNB 不支持
 # 跨文件锚点，所以整条 stages 必须留在本文件内）：
-#   * crontab：每天 00:05 自动跑，不注入 version，脚本兜底成 nightly。
+#   * crontab：每天 00:00（北京时间）自动跑，不注入 version，脚本兜底成 nightly。
 #   * web_trigger：手动点「发布」按钮，页面表单填 version 与 commit（见 .cnb/web_trigger.yml），
-#     直接用别名 *publish_job 引用同一份 job。CNB 按 input key 原样注入环境变量，
+#     直接用别名 *trigger_release 引用同一份 job。CNB 按 input key 原样注入环境变量，
 #     即小写 $version / $commit；scripts/ci/resolve-version.sh 的优先级是 $VERSION > $version，
 #     所以 job env 里不能写死 VERSION，否则手动填的版本会失效。
 #
@@ -29,150 +29,190 @@
 #   包名读 package.json（兜底 @${CNB_GROUP_SLUG_LOWERCASE}/${CNB_REPO_NAME_LOWERCASE}）
 #   发布令牌用云原生构建内置 $CNB_TOKEN
 # 零依赖（纯 shell + node 自带的 fetch），直接用镜像自带的 node / npm。
-# ---- 唯一的一条流水线：定时和手动共用同一份 stages ----
 # 手动触发时若填了 commit，则先切到该提交；定时 / 留空时 COMMIT 为空，用默认分支 HEAD。
-stages: &publish_stages
-  - name: 切换到指定提交
-    script: |
-      set -e
-      if [ -n "${COMMIT:-}" ]; then
-        git fetch --depth=1 origin "${COMMIT}"
-        git checkout --detach "${COMMIT}"
-        echo "built from ${COMMIT}"
-      else
-        echo "built from ${CNB_COMMIT_SHORT}"
-      fi
+.trigger_release: &trigger_release
+  name: 发布
+  env:
+    GIT_SHIM_SAFE_DIRECTORY: 'true'
+    PUBLISH_NAME: '@dtapp/ci-templates'
+    PUBLISH_SCOPE: '@dtapp'
+    PUBLISH_REGISTRY: https://npm.cnb.cool/dtapp/ci/-/packages/
+  runner:
+    tags: cnb:arch:amd64 # 指定 Runner 必须有这个标签
+  docker:
+    image: docker.cnb.cool/dtapp/golang:latest # 统一使用预构建的 CI 环境镜像
+  stages:
+    - name: 切换到指定提交
+      script: |
+        set -e
+        if [ -n "${COMMIT:-}" ]; then
+          git fetch --depth=1 origin "${COMMIT}"
+          git checkout --detach "${COMMIT}"
+          echo "built from ${COMMIT}"
+        else
+          echo "built from ${CNB_COMMIT_SHORT}"
+        fi
 
-  - name: 解析版本
-    script: bash scripts/ci/resolve-version.sh
-    exports:
-      VERSION: VERSION
-      TAG: TAG
-      CHANNEL: CHANNEL
-      DIST_TAG: DIST_TAG
-      PRERELEASE: PRERELEASE
-      LATEST: LATEST
+    - name: 解析版本
+      script: bash scripts/ci/resolve-version.sh
+      exports:
+        VERSION: VERSION
+        TAG: TAG
+        CHANNEL: CHANNEL
+        DIST_TAG: DIST_TAG
+        PRERELEASE: PRERELEASE
+        LATEST: LATEST
 
-  # 包版本已存在则跳过后续全部步骤（工作流保持成功）：npm 版本不可覆盖。
-  - name: 检查包版本是否已存在
-    script: |
-      set -e
-      EXISTS="$(node -e '
-        const name = process.env.PUBLISH_NAME;
-        const version = process.env.VERSION;
-        const registry = process.env.PUBLISH_REGISTRY.replace(/\/+$/, "") + "/";
-        const url = registry + name.replace(/\//g, "%2F");
-        fetch(url, { headers: { accept: "application/json", authorization: `Bearer ${process.env.CNB_TOKEN}` } })
-          .then(r => (r.ok ? r.json() : {}))
-          .then(j => process.stdout.write(j.versions && j.versions[version] ? "true" : "false"))
-          .catch(() => process.stdout.write("false"));
-      ')"
-      echo "$EXISTS"
-      echo "##[set-output EXISTS=${EXISTS}]"
-    exports:
-      VERSION_EXISTS: EXISTS
+    # 判断依据：包版本号（registry 的 versions），不用 tag —— tag 会被删/重建，
+    # 同一提交上还可能有多个 tag。npm 版本不可覆盖，已存在就跳过后面全部步骤，
+    # 工作流保持成功（不报错）；需要新 Release 就升版本号。
+    # 查询失败（网络/权限）按“不存在”继续，发布步骤自带版本冲突容错兜底，不阻断流程。
+    - name: 检查包版本是否已存在
+      script: |
+        set -e
+        # 查询失败（node/fetch 不可用、网络或权限问题）也不能让本步骤失败：
+        # 按“不存在”继续，发布步骤自带版本冲突容错兜底，工作流保持成功。
+        set +e
+        EXISTS="$(node -e '
+          const name = process.env.PUBLISH_NAME;
+          const version = process.env.VERSION;
+          const registry = process.env.PUBLISH_REGISTRY.replace(/\/+$/, "") + "/";
+          const url = registry + name.replace(/\//g, "%2F");
+          fetch(url, { headers: { accept: "application/json", authorization: `Bearer ${process.env.CNB_TOKEN}` } })
+            .then(r => {
+              if (!r.ok) {
+                process.stderr.write(`查询包版本失败：HTTP ${r.status}，按“不存在”继续（发布时会做版本冲突容错）\n`);
+                return {};
+              }
+              return r.json();
+            })
+            .then(j => process.stdout.write(
+              j.versions && Object.prototype.hasOwnProperty.call(j.versions, version) ? "true" : "false"
+            ))
+            .catch(e => {
+              process.stderr.write(`查询包版本失败：${e.message}，按“不存在”继续（发布时会做版本冲突容错）\n`);
+              process.stdout.write("false");
+            });
+        ')"
+        rc=$?
+        set -e
+        if [ "$rc" -ne 0 ] || { [ "$EXISTS" != "true" ] && [ "$EXISTS" != "false" ]; }; then
+          echo "查询包版本失败（node 退出 $rc，输出：${EXISTS:-<空>}），按“不存在”继续" >&2
+          EXISTS=false
+        fi
+        echo "包 ${PUBLISH_NAME}@${VERSION} 是否已存在：${EXISTS}"
+        echo "##[set-output EXISTS=${EXISTS}]"
+      exports:
+        VERSION_EXISTS: EXISTS
 
-  - name: 包版本已存在，跳过后续步骤
-    if: |
-      [ "$VERSION_EXISTS" = "true" ]
-    script: echo "包版本已存在，跳过后续全部步骤"
+    - name: 包版本已存在，跳过后续步骤
+      if: |
+        [ "$VERSION_EXISTS" = "true" ]
+      script: echo "包版本已存在，跳过后续全部步骤"
 
-  # 重跑同一版本时先删掉旧的 Release 与 tag，保证下面能重新创建。
-  # tag 也可能已经被删过，这里允许失败，不阻断发布。
-  - name: 删除同名旧 Release 与 tag（如果存在）
-    if: |
-      [ "$VERSION_EXISTS" != "true" ]
-    allowFailure: true
-    script: sh scripts/ci/delete-release.sh --platform cnb --tag "$TAG"
+    # 重跑同一版本时先删掉旧的 Release 与 tag，保证下面能重新创建。
+    # tag 也可能已经被删过，这里允许失败，不阻断发布。
+    - name: 删除同名旧 Release 与 tag（如果存在）
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      allowFailure: true
+      script: sh scripts/ci/delete-release.sh --platform cnb --tag "$TAG"
 
-  # 包内的 dist/ 是 scripts/ 的压缩副本（make minify-shell 的产物），
-  # 平时被 .gitignore 忽略，发布前现生成；生成失败说明脚本本身有问题，直接拦住发布。
-  - name: 生成 dist 压缩副本
-    if: |
-      [ "$VERSION_EXISTS" != "true" ]
-    script: bash scripts/minify.sh shell
+    # 包内的 dist/ 是 scripts/ 的压缩副本（make minify-shell 的产物），
+    # 平时被 .gitignore 忽略，发布前现生成；生成失败说明脚本本身有问题，直接拦住发布。
+    - name: 生成 dist 压缩副本
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      script: bash scripts/minify.sh shell
 
-  - name: 写入版本号与包名到 package.json
-    if: |
-      [ "$VERSION_EXISTS" != "true" ]
-    script: |
-      set -e
-      node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.VERSION;p.name=process.env.PUBLISH_NAME;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
-      echo "将要发布：$(node -p "require('./package.json').name + '@' + require('./package.json').version")"
+    - name: 写入版本号与包名到 package.json
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      script: |
+        set -e
+        node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.VERSION;p.name=process.env.PUBLISH_NAME;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
+        echo "将要发布：$(node -p "require('./package.json').name + '@' + require('./package.json').version")"
 
-  # 提前把 scope 映射写进工作区 .npmrc，让发布插件按统一 registry 解析 @dtapp 包。
-  - name: 配置 npm scope
-    if: |
-      [ "$VERSION_EXISTS" != "true" ]
-    script: |
-      set -e
-      printf '%s:registry=%s\n' "$PUBLISH_SCOPE" "$PUBLISH_REGISTRY" > .npmrc
+    # 提前把 scope 映射写进工作区 .npmrc，让发布插件按统一 registry 解析 @dtapp 包。
+    - name: 配置 npm scope
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      script: |
+        set -e
+        printf '%s:registry=%s\n' "$PUBLISH_SCOPE" "$PUBLISH_REGISTRY" > .npmrc
 
-  - name: 创建标签
-    if: |
-      [ "$VERSION_EXISTS" != "true" ]
-    script: bash scripts/ci/nightly-tag.sh
+    - name: 创建标签
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      script: bash scripts/ci/nightly-tag.sh
 
-  # 官方插件：正文交给平台默认行为自动生成，不传 description / descriptionFromFile。
-  # 标题格式：CITemplates v1.2.3（$TAG 自带前导 v）。
-  - name: 创建 Release
-    type: git:release
-    if: |
-      [ "$VERSION_EXISTS" != "true" ]
-    options:
-      tag: $TAG
-      title: CITemplates $TAG
-      preRelease: $PRERELEASE
-      latest: $LATEST
+    # 发布正文由 changelog 插件生成；失败时兜底为“首次发布”，不阻断发布。
+    - name: 生成变更日志
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      image: cnbcool/changelog:latest
+      allowFailure: true
+      settings:
+        latestChangeLogTarget: LATEST_CHANGELOG.md
 
-  # protect 保住正式版、latest/stable 与 rc/beta/alpha，避免 by_count 误删非 nightly 版本；
-  # dry_run 必须显式为 false，否则插件默认只列出待删除版本。
-  - name: 清理旧 nightly（只保留最近 3 个）
-    image: docker.cnb.cool/dtapp/plugins/release-cleaner:latest
-    allowFailure: true
-    settings:
-      mode: by_count
-      keep: 3
-      protect: '^(v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha)[.-]?[0-9A-Za-z.-]*)?|latest|stable)$'
-      delete_git_tag: true
-      dry_run: false
+    - name: 准备发布参数
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      script: |
+        if [ ! -f LATEST_CHANGELOG.md ]; then
+          echo "首次发布" > LATEST_CHANGELOG.md
+        fi
 
-  # Release 已成功后再发布 npm；前面任一步失败都不会动制品库。
-  - name: 发布到制品库
-    image: tencentcom/npm
-    if: |
-      [ "$VERSION_EXISTS" != "true" ]
-    settings:
-      username: $CNB_TOKEN_USER_NAME
-      token: $CNB_TOKEN
-      email: $CNB_COMMITTER_EMAIL
-      registry: $PUBLISH_REGISTRY
-      folder: ./
-      tag: $DIST_TAG
-      access: public
-      fail_on_version_conflict: false
+    - name: 创建 Release
+      type: git:release
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      options:
+        tag: $TAG
+        title: CITemplates $TAG
+        descriptionFromFile: LATEST_CHANGELOG.md
+        preRelease: $PRERELEASE
+        latest: $LATEST
+
+    # protect 保住正式版、latest/stable 与 rc/beta/alpha，避免 by_count 误删非 nightly 版本；
+    # dry_run 必须显式为 false，否则插件默认只列出待删除版本。
+    # 包版本已存在时连清理一起跳过：delete_git_tag 会删掉已有 Release 依赖的 tag。
+    - name: 清理旧 nightly（只保留最近 3 个）
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      image: docker.cnb.cool/dtapp/plugins/release-cleaner:latest
+      allowFailure: true
+      settings:
+        mode: by_count
+        keep: 3
+        protect: '^(v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha)[.-]?[0-9A-Za-z.-]*)?|latest|stable)$'
+        delete_git_tag: true
+        dry_run: false
+
+    # Release 已成功后再发布 npm；前面任一步失败都不会动制品库。
+    - name: 发布到制品库
+      image: tencentcom/npm
+      if: |
+        [ "$VERSION_EXISTS" != "true" ]
+      settings:
+        username: $CNB_TOKEN_USER_NAME
+        token: $CNB_TOKEN
+        email: $CNB_COMMITTER_EMAIL
+        registry: $PUBLISH_REGISTRY
+        folder: ./
+        tag: $DIST_TAG
+        access: public
+        fail_on_version_conflict: false
 
 main:
-
-  # 定时（每天 00:05）与手动（web_trigger 按钮）共用同一份 job 定义：
-  # 定时任务挂在 YAML 锚点上，手动触发直接用别名整份引用，避免两处重复维护。
+  # 定时（每天 00:00，北京时间）与手动（web_trigger 按钮）共用同一份 job 定义。
+  # 定时任务挂在 YAML 锚点上，手动触发直接用别名整份引用，避免重复维护。
   # 注意：job env 里不能写死 VERSION —— resolve-version.sh 的优先级是
   # $VERSION（大写，定时任务用）> $version（表单按 input key 原样注入的小写变量），
   # 写死 VERSION 会让手动填的版本失效。定时任务不注入 version，脚本兜底为 nightly。
-  'crontab: 5 0 * * *':
-    - &publish_job
-      name: 发布
-      env:
-        GIT_SHIM_SAFE_DIRECTORY: 'true'
-        PUBLISH_NAME: '@dtapp/ci-templates'
-        PUBLISH_SCOPE: '@dtapp'
-        PUBLISH_REGISTRY: https://npm.cnb.cool/dtapp/ci/-/packages/
-      runner:
-        tags: cnb:arch:amd64 # 指定 Runner 必须有这个标签
-      docker:
-        image: docker.cnb.cool/dtapp/golang:latest # 统一使用预构建的 CI 环境镜像
-      stages: *publish_stages
+  'crontab: 0 0 * * *':
+    - *trigger_release
 
   # 手动执行：version 与 commit 由 .cnb/web_trigger.yml 的 inputs 表单注入。
   web_trigger_publish:
-    - *publish_job
+    - *trigger_release

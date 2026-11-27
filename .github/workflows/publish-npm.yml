@@ -141,7 +141,10 @@ jobs:
             echo "${key}=${value}" >> "$GITHUB_OUTPUT"
           done < .version.env
 
-      # 包版本已存在则跳过后续步骤（工作流保持成功）；npm 的版本不可覆盖。
+      # 判断依据：包版本号（npm view 的 versions），不用 tag —— tag 会被删/重建，
+      # 同一提交上还可能有多个 tag。npm 版本不可覆盖，已存在就跳过后面全部步骤，
+      # 工作流保持成功（不报错）；需要新版本就升版本号。
+      # 查询失败（网络/权限）按“不存在”继续，发布步骤自带版本冲突容错兜底，不阻断流程。
       - name: 检查 npm 版本是否已存在
         id: version_exists
         shell: bash
@@ -150,14 +153,17 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          npm view "${NPMJS_NAME}@${VERSION}" version --registry "$NPMJS_REGISTRY" >/dev/null 2>&1
+          found="$(npm view "${NPMJS_NAME}@${VERSION}" version --registry "$NPMJS_REGISTRY" 2>/dev/null)"
           rc=$?
           set -e
-          if [ "$rc" -eq 0 ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          exists=false
+          if [ "$rc" -eq 0 ] && [ -n "$found" ]; then
+            exists=true
+          elif [ "$rc" -ne 0 ]; then
+            echo "::warning::查询 npm 版本失败（npm view 返回 $rc），按“不存在”继续；发布步骤会做版本冲突容错"
           fi
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+          echo "包 ${NPMJS_NAME}@${VERSION} 是否已存在：${exists}"
 
       - name: 包版本已存在，跳过后续步骤
         if: steps.version_exists.outputs.exists == 'true'
