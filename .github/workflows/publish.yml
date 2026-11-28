@@ -5,17 +5,21 @@
 #
 # 三个平台各发各的，包名/注册表不同：
 #   * GitHub Packages  -> @dtapps/ci-templates（scope 必须与仓库 owner 一致），本文件发布
-#   * npm 公共源       -> @dtapp/ci-templates ，由 publish-npm.yml 发布（见文件末尾 job）
+#   * npm 公共源       -> @dtapp/ci-templates ，由 publish-npm.yml 发布（见末尾 job）
 #   * CNB 制品库       -> @dtapp/ci-templates ，由 .cnb/workflows/publish.yml 发布
 #
 # 两种触发共用同一套步骤：
 #   * 每天 00:00 定时发 nightly（VERSION=nightly 自动展开为 <最新正式版+1补丁>-nightly.<UTC 日期>）
-#   * workflow_dispatch 手动填 version（semver 或 nightly）与 commit（留空用触发分支 HEAD）
+#   * workflow_dispatch 手动填 version（semver 或 nightly），发布触发分支的当前提交
 #
-# 标题统一为「ci-templates v1.2.3」；Release 正文交给 GitHub 自动生成的 Release Notes
-# （generate_release_notes），不再从 README 里 awk 安装段，也不再依赖本地 changelog 脚本。
+# 版本门禁：独立 job version-gate 先用 resolve-version.sh 算出最终 Tag，再用
+# dtapps/release-version-action@main 解析并校验该 Tag；校验通过后，release 与
+# publish-npm job 才执行构建、打包、部署（两者均 needs: version-gate）。
 #
-# 包版本已存在则跳过后续全部步骤（工作流保持成功）：npm 版本不可覆盖，
+# 标题统一为「ci-templates v1.2.3」；Release 正文由 dtapps/release-changelog-action@main
+# 以 mode: changelog 生成，写入文件后交给 action-gh-release 发布，不再用平台自动 Release Notes。
+#
+# 包版本已存在则跳过门禁校验与后续全部步骤（工作流保持成功）：npm 版本不可覆盖，
 # 需要新 Release 就升版本号。version 规则见 scripts/ci/resolve-version.sh。
 #
 # https://github.com/actions/checkout
@@ -33,11 +37,6 @@ on:
         required: true
         type: string
         default: nightly
-      commit:
-        description: '要发布的提交 SHA（留空用当前分支最新提交）'
-        required: false
-        type: string
-        default: ''
 
 permissions:
   contents: write
@@ -59,27 +58,139 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  # 独立版本门禁：解析 Tag、校验与 Git Tag 的一致性；失败时下游 job 全部不执行。
+  version-gate:
     runs-on: ubuntu-26.04
     container:
       image: ghcr.io/dtapps/golang:latest
       env:
         GIT_SHIM_SAFE_DIRECTORY: 'true'
-    # 解析出的版本号传给下面的 publish-npm（workflow_call），保证两边发的是同一个版本。
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
       tag: ${{ steps.version.outputs.TAG }}
+      channel: ${{ steps.version.outputs.CHANNEL }}
+      dist_tag: ${{ steps.version.outputs.DIST_TAG }}
+      prerelease: ${{ steps.version.outputs.PRERELEASE }}
+      latest: ${{ steps.version.outputs.LATEST }}
       exists: ${{ steps.version_exists.outputs.exists }}
     env:
       VERSION: ${{ github.event_name == 'schedule' && 'nightly' || inputs.version }}
-      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      # fetch-depth: 0 是必需的：nightly 的基准版本、Release Notes 的 diff 都要读历史 tag。
+      # fetch-depth: 0 是必需的：校验 Tag、nightly 基准都要读历史 tag。
       - name: 检出代码
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ inputs.commit || github.sha }}
+          ref: ${{ github.sha }}
+
+      - name: 解析版本
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/resolve-version.sh
+          while IFS='=' read -r key value; do
+            echo "${key}=${value}" >> "$GITHUB_OUTPUT"
+          done < .version.env
+
+      # 判断依据：包版本号（npm view 的 versions），不用 tag —— tag 会被删/重建，
+      # 同一提交上还可能有多个 tag。已存在则门禁跳过 Tag 校验，下游也全部跳过。
+      # 查询失败（网络/权限）按“不存在”继续，发布步骤自带版本冲突容错兜底。
+      - name: 检查包版本是否已存在
+        id: version_exists
+        shell: bash
+        env:
+          CHECK_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          set +e
+          found="$(npm view "${PUBLISH_NAME}@${CHECK_VERSION}" version --registry "$PUBLISH_REGISTRY" 2>/dev/null)"
+          rc=$?
+          set -e
+          exists=false
+          if [ "$rc" -eq 0 ] && [ -n "$found" ]; then
+            exists=true
+          elif [ "$rc" -ne 0 ]; then
+            echo "::warning::查询包版本失败（npm view 返回 $rc），按“不存在”继续；发布步骤会做版本冲突容错"
+          fi
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+          echo "包 ${PUBLISH_NAME}@${CHECK_VERSION} 是否已存在：${exists}"
+
+      # 插件只做版本解析与 Tag 校验，不执行 git checkout，也不创建/删除 Release/Tag。
+      # 这里有意不传 commit 参数（已废弃）：Tag 由 resolve-version.sh 计算，Action 只校验它。
+      - name: 解析版本号（release-version-action）
+        id: resolve_version
+        uses: dtapps/release-version-action@main
+        with:
+          mode: parse
+          version: ${{ steps.version.outputs.TAG }}
+          fetch_tags: false
+
+      - name: 校验解析结果与 Tag 一致
+        shell: bash
+        env:
+          EXPECTED_TAG: ${{ steps.version.outputs.TAG }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.VERSION }}
+          RESOLVED_TAG: ${{ steps.resolve_version.outputs.tag }}
+          RESOLVED_VERSION: ${{ steps.resolve_version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$RESOLVED_TAG" != "$EXPECTED_TAG" ] || [ "$RESOLVED_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::版本解析结果与 Tag 不一致：期望 ${EXPECTED_TAG}/${EXPECTED_VERSION}，实际 ${RESOLVED_TAG}/${RESOLVED_VERSION}"
+            exit 1
+          fi
+          echo "版本解析结果与 Tag 一致：${EXPECTED_TAG}"
+
+      # 包版本已存在时连 Tag 校验一起跳过：同名正式版/预发布 Tag 会被 Action 判重复而失败，
+      # 但这种情况下后续发布步骤本来就要全部跳过，工作流必须保持成功。
+      # nightly 允许同名 Tag 存在，因为后续会删除旧 Release/Tag 再重建。
+      - name: 校验版本号与 Tag（release-version-action）
+        id: validate
+        if: steps.version_exists.outputs.exists != 'true'
+        uses: dtapps/release-version-action@main
+        with:
+          mode: validate
+          version: ${{ steps.resolve_version.outputs.tag }}
+          fetch_tags: true
+          allow_existing_nightly: ${{ steps.resolve_version.outputs.channel == 'nightly' }}
+
+      - name: 版本门禁摘要
+        shell: bash
+        env:
+          EXISTS: ${{ steps.version_exists.outputs.exists }}
+          TAG: ${{ steps.version.outputs.TAG }}
+        run: |
+          set -euo pipefail
+          if [ "$EXISTS" = "true" ]; then
+            echo "::notice::包版本已存在，跳过 Tag 校验；release 与 publish-npm job 将跳过全部后续步骤"
+          else
+            echo "::notice::版本门禁通过：${TAG}"
+          fi
+
+  release:
+    needs: version-gate
+    runs-on: ubuntu-26.04
+    container:
+      image: ghcr.io/dtapps/golang:latest
+      env:
+        GIT_SHIM_SAFE_DIRECTORY: 'true'
+    # 解析出的版本号来自 version-gate，传给下面的 publish-npm（workflow_call），
+    # 保证门禁、Release 与 npm 发布用的是同一个版本。
+    outputs:
+      version: ${{ needs.version-gate.outputs.version }}
+      tag: ${{ needs.version-gate.outputs.tag }}
+      exists: ${{ needs.version-gate.outputs.exists }}
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # fetch-depth: 0 是必需的：Release Notes 的 diff 要读历史 tag。
+      - name: 检出代码
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
 
       # 容器镜像 ghcr.io/dtapps/golang 自带 Node/npm，不再用 setup-node 重复安装。
       # setup-node 的 registry-url 其实只做两件事，这里手写等价内容：
@@ -97,77 +208,64 @@ jobs:
           echo "npm $(npm -v) / node $(node -v)"
           cat "$HOME/.npmrc"
 
-      - name: 解析版本
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/ci/resolve-version.sh
-          while IFS='=' read -r key value; do
-            echo "${key}=${value}" >> "$GITHUB_OUTPUT"
-          done < .version.env
+      # 发布正文由 release-changelog-action（mode: changelog）生成；必须先于删除旧 tag，
+      # 否则会失去基准 Tag。Action 失败时兜底为“首次发布”，不阻断发布。
+      - name: 生成 Release 正文
+        id: changelog
+        if: needs.version-gate.outputs.exists != 'true'
+        continue-on-error: true
+        uses: dtapps/release-changelog-action@main
+        with:
+          mode: changelog
+          version: ${{ needs.version-gate.outputs.tag }}
+          out_file: RELEASE_BODY.md
+          changelog_limit: 50
+          fetch_tags: true
+          fetch_history: true
 
-      # 判断依据：包版本号（npm view 的 versions），不用 tag —— tag 会被删/重建，
-      # 同一提交上还可能有多个 tag。npm 版本不可覆盖，已存在就跳过后面全部步骤，
-      # 工作流保持成功（不报错）；需要新 Release 就升版本号。
-      # 查询失败（网络/权限）按“不存在”继续，发布步骤自带版本冲突容错兜底，不阻断流程。
-      - name: 检查包版本是否已存在
-        id: version_exists
+      - name: 准备发布正文
+        if: needs.version-gate.outputs.exists != 'true'
         shell: bash
         env:
-          VERSION: ${{ steps.version.outputs.VERSION }}
+          BODY_FILE: ${{ steps.changelog.outputs.body_file }}
         run: |
           set -euo pipefail
-          set +e
-          found="$(npm view "${PUBLISH_NAME}@${VERSION}" version --registry "$PUBLISH_REGISTRY" 2>/dev/null)"
-          rc=$?
-          set -e
-          exists=false
-          if [ "$rc" -eq 0 ] && [ -n "$found" ]; then
-            exists=true
-          elif [ "$rc" -ne 0 ]; then
-            echo "::warning::查询包版本失败（npm view 返回 $rc），按“不存在”继续；发布步骤会做版本冲突容错"
+          if [ -z "$BODY_FILE" ] || [ ! -f "$BODY_FILE" ]; then
+            printf '首次发布\n' > RELEASE_BODY.md
           fi
-          echo "exists=$exists" >> "$GITHUB_OUTPUT"
-          echo "包 ${PUBLISH_NAME}@${VERSION} 是否已存在：${exists}"
-
-      - name: 包版本已存在，跳过后续步骤
-        if: steps.version_exists.outputs.exists == 'true'
-        shell: bash
-        run: echo "::notice::包版本已存在，跳过后续全部步骤"
 
       # 重跑同一版本时先删掉旧的 Release 与 tag，保证下面能重新创建。
       - name: 删除同名旧 Release 与 tag（如果存在）
-        if: steps.version_exists.outputs.exists != 'true'
+        if: needs.version-gate.outputs.exists != 'true'
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_TO_DELETE: ${{ steps.version.outputs.TAG }}
+          TAG_TO_DELETE: ${{ needs.version-gate.outputs.tag }}
         run: sh scripts/ci/delete-release.sh --platform github --tag "$TAG_TO_DELETE"
 
       # 包内的 dist/ 是 scripts/ 的压缩副本（make minify-shell 的产物），
       # 平时被 .gitignore 忽略，发布前现生成；生成失败说明脚本本身有问题，直接拦住发布。
       - name: 生成 dist 压缩副本
-        if: steps.version_exists.outputs.exists != 'true'
+        if: needs.version-gate.outputs.exists != 'true'
         shell: bash
         run: bash scripts/minify.sh shell
 
       - name: 创建标签
-        if: steps.version_exists.outputs.exists != 'true'
+        if: needs.version-gate.outputs.exists != 'true'
         shell: bash
         env:
-          TAG: ${{ steps.version.outputs.TAG }}
-          TAG_COMMIT: ${{ inputs.commit || github.sha }}
+          TAG: ${{ needs.version-gate.outputs.tag }}
+          TAG_COMMIT: ${{ github.sha }}
         run: bash scripts/ci/nightly-tag.sh
 
       # GitHub Packages 上的包名必须是 @<repo owner>/...，与 npm 公共源、CNB 制品库不同，
       # 所以发布前改 package.json 的 name；files 字段（scripts + dist）保持不变。
       - name: 写入版本号与 GitHub Packages 包名
-        if: steps.version_exists.outputs.exists != 'true'
+        if: needs.version-gate.outputs.exists != 'true'
         shell: bash
         env:
-          PACKAGE_VERSION: ${{ steps.version.outputs.VERSION }}
+          PACKAGE_VERSION: ${{ needs.version-gate.outputs.version }}
         run: |
           set -euo pipefail
           node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.PACKAGE_VERSION;p.name=process.env.PUBLISH_NAME;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
@@ -176,16 +274,16 @@ jobs:
           npm pack --dry-run --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const raw=JSON.parse(s);const j=Array.isArray(raw)?raw[0]:raw[Object.keys(raw)[0]];console.log("包内文件 "+j.files.length+" 个，共 "+j.size+" 字节")})'
 
       - name: 创建 Release
-        if: steps.version_exists.outputs.exists != 'true'
+        if: needs.version-gate.outputs.exists != 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.version.outputs.TAG }}
+          tag_name: ${{ needs.version-gate.outputs.tag }}
           # 标题格式：CITemplates v1.2.3
-          name: CITemplates ${{ steps.version.outputs.TAG }}
-          prerelease: ${{ steps.version.outputs.PRERELEASE == 'true' }}
-          make_latest: ${{ steps.version.outputs.LATEST }}
-          # 正文交给平台自动生成（按上一个 tag 比较提交），不再维护 release_body.md
-          generate_release_notes: true
+          name: CITemplates ${{ needs.version-gate.outputs.tag }}
+          prerelease: ${{ needs.version-gate.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.version-gate.outputs.latest }}
+          # 正文来自上面的 release-changelog-action；文件不存在时已兜底为“首次发布”
+          body_path: RELEASE_BODY.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -193,7 +291,7 @@ jobs:
       # dry_run 必须显式为 false，否则插件默认只列出待删除版本。
       # 包版本已存在时连清理一起跳过：delete_git_tag 会删掉已有 Release 依赖的 tag。
       - name: 清理旧 nightly（只保留最近 3 个）
-        if: steps.version_exists.outputs.exists != 'true'
+        if: needs.version-gate.outputs.exists != 'true'
         uses: dtapps/release-cleaner-action@main
         continue-on-error: true
         with:
@@ -205,10 +303,10 @@ jobs:
 
       # Release 已成功后再发布 npm；前面任一步失败都不会动制品库。
       - name: 发布到 GitHub Packages
-        if: steps.version_exists.outputs.exists != 'true'
+        if: needs.version-gate.outputs.exists != 'true'
         shell: bash
         env:
-          DIST_TAG: ${{ steps.version.outputs.DIST_TAG }}
+          DIST_TAG: ${{ needs.version-gate.outputs.dist_tag }}
         run: |
           set -euo pipefail
           set +e
@@ -238,18 +336,17 @@ jobs:
           fi
           exit "$rc"
 
-  # 复制出来的 npm 公共源工作流：Release 跑完后，把上面算好的版本号原样传进去。
+  # 复制出来的 npm 公共源工作流：版本门禁通过后，用同样的版本号调用。
   # 用 workflow_call 而不是 workflow_run，是为了避免重新猜版本（tag 反推会取错）。
   # 这里不按 GitHub Packages 的检查结果跳过：三个源相互独立，版本是否已存在
-  # 由 publish-npm.yml 查 npm 公共源自己判定（例如 GitHub Packages 已有而 npm 没有时仍能补发）。
+  # 由 publish-npm.yml 自己的门禁查 npm 公共源判定。
   publish-npm:
-    needs: release
+    needs: [version-gate, release]
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/publish-npm.yml
     with:
-      version: ${{ needs.release.outputs.version }}
-      commit: ${{ inputs.commit || github.sha }}
+      version: ${{ needs.version-gate.outputs.version }}
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

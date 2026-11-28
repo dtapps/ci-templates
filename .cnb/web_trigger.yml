@@ -1,7 +1,7 @@
 branch:
   - buttons:
       - name: 发布 npm
-        description: 按 version 渠道发布到 npm 制品库并创建 Release
+        description: 发布版本 ${version} 到 npm 制品库并创建 Release
         event: web_trigger_publish
         inputs:
           version:
@@ -11,12 +11,6 @@ branch:
             required: true
             default: nightly
             placeholder: 1.2.3 / 1.2.3-rc.1 / nightly
-          commit:
-            name: 提交 SHA
-            description: 要发布的提交，留空则使用当前分支最新提交
-            type: input
-            required: false
-            placeholder: 留空 = 分支 HEAD
       - name: 生成 Code Wiki
         description: 重新分析仓库并生成 Code Wiki 文档
         event: web_trigger_codewiki # 触发的 CI 事件名
